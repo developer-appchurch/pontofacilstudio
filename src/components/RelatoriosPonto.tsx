@@ -178,6 +178,9 @@ export function RelatoriosPonto({
   // Imprimir ou Salvar PDF nativo
   const handlePrintPdf = () => {
     setShowPdfModal(true);
+    setTimeout(() => {
+      window.print();
+    }, 300);
   };
 
   const saldoHoras = Math.floor(Math.abs(metricasMes.saldoConsolidadoMinutos) / 60);
