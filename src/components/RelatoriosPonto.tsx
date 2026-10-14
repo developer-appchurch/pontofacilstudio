@@ -47,6 +47,7 @@ export function RelatoriosPonto({
   });
 
   const [showPdfModal, setShowPdfModal] = useState(false);
+  const [printHint, setPrintHint] = useState(false);
 
   const colaboradorSelecionado = useMemo(() => {
     return colaboradores.find((c) => c.id === selectedColabId) || colaboradores[0];
@@ -175,12 +176,103 @@ export function RelatoriosPonto({
     document.body.removeChild(link);
   };
 
-  // Imprimir ou Salvar PDF nativo
+  // Abre o modal do Espelho de Ponto (a impressão é disparada pelo botão "Imprimir Agora")
   const handlePrintPdf = () => {
+    setPrintHint(false);
     setShowPdfModal(true);
-    setTimeout(() => {
+  };
+
+  // Dentro do preview do AI Studio o app roda em um iframe com sandbox, que costuma bloquear
+  // window.print() sem lançar erro. Detectamos o iframe para orientar o usuário.
+  const isEmbedded = () => {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true; // acesso ao window.top bloqueado => está embutido em outra origem
+    }
+  };
+
+  const handleImprimirAgora = () => {
+    try {
       window.print();
-    }, 300);
+    } catch {
+      setPrintHint(true);
+      return;
+    }
+    if (isEmbedded()) setPrintHint(true);
+  };
+
+  const escapeHtml = (v: unknown) =>
+    String(v ?? '').replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
+    ));
+
+  // Baixa o espelho como HTML autônomo: ao abrir o arquivo em uma aba normal, imprime/salva em PDF.
+  const handleBaixarEspelho = () => {
+    if (!colaboradorSelecionado) return;
+    const linhas = linhasEspelho
+      .map(
+        (l) => `<tr>
+          <td>${escapeHtml(l.dataStr)} (${escapeHtml(l.diaSemana)})</td>
+          <td><b>${escapeHtml(l.entrada || '--')}</b></td>
+          <td>${escapeHtml(l.almocoSaida || '--')}</td>
+          <td>${escapeHtml(l.almocoRetorno || '--')}</td>
+          <td><b>${escapeHtml(l.saida || '--')}</b></td>
+          <td>${escapeHtml(l.statusGeral)}</td>
+          <td class="r"><b>${l.saldoMinutosDia > 0 ? `+${l.saldoMinutosDia}m` : l.saldoMinutosDia < 0 ? `${l.saldoMinutosDia}m` : '0m'}</b></td>
+        </tr>`
+      )
+      .join('');
+
+    const html = `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8" />
+<title>Espelho de Ponto - ${escapeHtml(colaboradorSelecionado.nome)} - ${escapeHtml(selectedMesAno)}</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b;margin:24px;font-size:12px}
+  h1{font-size:18px;margin:0} .muted{color:#64748b;font-size:11px}
+  .head{display:flex;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding-bottom:12px;margin-bottom:12px}
+  .box{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:12px}
+  .box span{display:block;font-size:9px;text-transform:uppercase;color:#94a3b8;font-weight:700}
+  table{width:100%;border-collapse:collapse;font-size:10px}
+  th{background:#f1f5f9;text-align:left} th,td{padding:5px 6px;border-bottom:1px solid #e2e8f0}
+  .r{text-align:right} .tot{display:flex;justify-content:space-between;border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin:12px 0;font-weight:700}
+  .sig{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:48px;text-align:center}
+  .sig div div{border-bottom:1px solid #94a3b8;margin-bottom:6px;height:28px}
+  @media print{body{margin:12mm}}
+</style></head><body>
+  <div class="head">
+    <div><h1>${escapeHtml(empresaAtiva.nome)}</h1>
+      <div class="muted">CNPJ: ${escapeHtml(empresaAtiva.cnpj)}</div>
+      <div class="muted">${escapeHtml(empresaAtiva.cidade || 'Brasil')}</div></div>
+    <div style="text-align:right"><b>ESPELHO DE PONTO MENSAL</b>
+      <div class="muted">Período: ${escapeHtml(selectedMesAno)}</div></div>
+  </div>
+  <div class="box">
+    <div><span>Colaborador</span><b>${escapeHtml(colaboradorSelecionado.nome)}</b></div>
+    <div><span>CPF</span>${escapeHtml(colaboradorSelecionado.cpf)}</div>
+    <div><span>Cargo / Depto</span>${escapeHtml(colaboradorSelecionado.cargo)} (${escapeHtml(colaboradorSelecionado.departamento)})</div>
+    <div><span>Jornada Prevista</span>${escapeHtml(colaboradorSelecionado.jornadaInicio)} - ${escapeHtml(colaboradorSelecionado.jornadaFim)}</div>
+  </div>
+  <table><thead><tr><th>Data</th><th>Entrada</th><th>Almoço</th><th>Retorno</th><th>Saída</th><th>Ocorrência</th><th class="r">Saldo</th></tr></thead>
+  <tbody>${linhas}</tbody></table>
+  <div class="tot"><span>Fechamento Consolidado do Banco de Horas no Mês:</span>
+    <span>${isSaldoPositivo ? '+' : '-'}${saldoHoras}h ${saldoMinutosRestantes}m</span></div>
+  <div class="sig">
+    <div><div></div><b>${escapeHtml(colaboradorSelecionado.nome)}</b><div class="muted" style="border:0;height:auto">Assinatura do Colaborador</div></div>
+    <div><div></div><b>${escapeHtml(empresaAtiva.nome)}</b><div class="muted" style="border:0;height:auto">Assinatura do Gestor / RH</div></div>
+  </div>
+  <script>window.addEventListener('load',function(){setTimeout(function(){window.print()},300)})</script>
+</body></html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `espelho_ponto_${colaboradorSelecionado.nome.replace(/\s+/g, '_')}_${selectedMesAno}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const saldoHoras = Math.floor(Math.abs(metricasMes.saldoConsolidadoMinutos) / 60);
@@ -398,7 +490,15 @@ export function RelatoriosPonto({
               </div>
               <div className="flex items-center space-x-2">
                 <button
-                  onClick={() => window.print()}
+                  onClick={handleBaixarEspelho}
+                  className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold rounded-xl text-xs flex items-center space-x-1.5"
+                  title="Baixa o espelho como arquivo HTML; abra-o e imprima ou salve em PDF"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Baixar (HTML)</span>
+                </button>
+                <button
+                  onClick={handleImprimirAgora}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-xs flex items-center space-x-1.5 shadow"
                 >
                   <Printer className="w-4 h-4" />
@@ -412,6 +512,14 @@ export function RelatoriosPonto({
                 </button>
               </div>
             </div>
+
+            {printHint && (
+              <div className="mb-4 p-3.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs">
+                Se a janela de impressão não abriu, o navegador está bloqueando a impressão dentro do
+                preview. Abra o app em uma nova aba (ícone de abrir em nova janela do preview) e clique em
+                <strong> Imprimir Agora</strong>, ou use <strong>Baixar (HTML)</strong> e imprima o arquivo baixado.
+              </div>
+            )}
 
             {/* Documento Folha Timbrada */}
             <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-xs text-slate-800 space-y-6">
