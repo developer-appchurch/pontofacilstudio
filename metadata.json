@@ -1,0 +1,7 @@
+{
+  "name": "PontoFácil - Sistema de Registro e Gestão de Ponto",
+  "description": "Sistema completo de controle de jornada, terminal de ponto com reconhecimento facial/CPF, cálculo automático de tolerância, banco de horas e painel do gestor.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"],
+  "repository": "https://github.com/developer-appchurch/pontoFacil.git"
+}

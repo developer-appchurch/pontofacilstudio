@@ -1,0 +1,112 @@
+// =========================================================================
+// PRISMA SCHEMA FOR SUPABASE POSTGRESQL (MULTI-TENANT PONTOFÁCIL)
+// =========================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 1. Tabela de Empresas (Multi-Tenant Master & Device Access)
+model Company {
+  id               String            @id @default(uuid()) @db.Uuid
+  name             String            @map("nome")
+  cnpj             String            @unique
+  email            String            @unique @map("email_contato")
+  accessCode       String            @map("codigo_acesso")
+  devicePassword   String            @map("senha_dispositivo")
+  managerPassword  String            @map("senha_gestor")
+  city             String?           @default("Brasil") @map("cidade")
+  plan             String?           @default("enterprise") @map("plano")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  employees        Employee[]
+  timeClockLogs    TimeClockLog[]
+  workdayConfigs   WorkdayConfig?
+  profiles         Profile[]
+
+  @@map("empresas")
+}
+
+// 2. Tabela de Perfis de Usuário (Integrado com Supabase Auth & Empresas)
+model Profile {
+  id               String            @id @default(uuid()) @db.Uuid
+  companyId        String            @map("empresa_id") @db.Uuid
+  name             String            @map("nome")
+  email            String            @map("email")
+  role             String            @default("gestor") @map("role") // 'admin' | 'gestor' | 'colaborador'
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("perfis")
+}
+
+// 2. Tabela de Colaboradores (Isolamento estrito por company_id)
+model Employee {
+  id              String          @id @default(uuid()) @db.Uuid
+  companyId       String          @map("empresa_id") @db.Uuid
+  name            String          @map("nome")
+  cpf             String          @map("cpf")
+  email           String?         @map("email")
+  role            String          @map("cargo")
+  department      String          @map("departamento")
+  workScheduleStart String        @default("08:00") @map("jornada_inicio")
+  workScheduleEnd   String        @default("17:00") @map("jornada_fim")
+  pin             String          @default("1234") @map("pin")
+  avatar          String?         @map("avatar")
+  facialPhotos    Json?           @default("[]") @map("fotos_faciais")
+  status          String          @default("ativo") @map("status") // 'ativo' | 'ferias' | 'afastado'
+  contractType    String          @default("CLT") @map("tipo_contrato") // 'CLT' | 'PJ' | 'Estágio'
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz
+
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  timeClockLogs   TimeClockLog[]
+
+  @@unique([companyId, cpf], name: "company_cpf_unique")
+  @@map("colaboradores")
+}
+
+// 3. Tabela de Registros de Ponto (Time Clock Logs com Motor de Tolerâncias)
+model TimeClockLog {
+  id              String          @id @default(uuid()) @db.Uuid
+  companyId       String          @map("empresa_id") @db.Uuid
+  employeeId      String          @map("colaborador_id") @db.Uuid
+  employeeName    String          @map("colaborador_nome")
+  date            DateTime        @default(now()) @map("data") @db.Date
+  time            String          @map("horario")
+  type            String          @map("tipo") // 'entrada' | 'inicio_almoco' | 'fim_almoco' | 'saida'
+  method          String          @map("metodo") // 'facial' | 'cpf_pin' | 'manual'
+  status          String          @map("status") // 'normal' | 'tolerancia' | 'atraso_leve' | 'atraso_grave' | 'antecipado'
+  diffMinutes     Int             @default(0) @map("diferenca_minutos")
+  observation     String?         @map("observacao")
+  location        String?         @map("localizacao")
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz
+
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee        Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, date])
+  @@index([companyId, employeeId])
+  @@map("registros_ponto")
+}
+
+// 4. Tabela de Configurações de Jornada e Tolerância (por Empresa)
+model WorkdayConfig {
+  id                          String    @id @default(uuid()) @db.Uuid
+  companyId                   String    @unique @map("empresa_id") @db.Uuid
+  toleranceNormalMinutes      Int       @default(5) @map("tolerancia_normal_minutos")
+  toleranceSlightDelayMinutes Int       @default(9) @map("tolerancia_atraso_leve_minutos")
+  criticalDelayMinutes        Int       @default(10) @map("atraso_critico_minutos")
+  allowedEarlyMinutes         Int       @default(15) @map("antecipacao_permitida_minutos")
+  updatedAt                   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company                     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("configuracoes_jornada")
+}
