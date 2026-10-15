@@ -10,7 +10,7 @@ import { useCompanyAuth } from '../context/CompanyAuthContext';
 import { Empresa } from '../types/ponto';
 import { formatCNPJ, isCNPJComplete } from '../utils/masks';
 import { supabaseDataService } from '../services/supabaseService';
-import { SupabaseDiagnostic } from './SupabaseDiagnostic';
+
 
 export const SQL_MIGRATION_EMPRESAS = `-- Adicionar colunas de acesso e credenciais na tabela public.empresas
 ALTER TABLE public.empresas 
@@ -305,8 +305,7 @@ export function MasterAdminPanel({ onBackToApp }: MasterAdminPanelProps) {
 
 
 
-        {/* Componente Visual de Diagnóstico do Supabase (Leitura/Escrita e Sem Polling Contínuo) */}
-        <SupabaseDiagnostic />
+
 
         {successNotice && (
           <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-2xl text-xs flex items-center space-x-2 animate-fadeIn">

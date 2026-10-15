@@ -13,7 +13,7 @@ import { compressImageToWebP } from '../utils/imageCompressor';
 import { formatCPF } from '../utils/masks';
 import { useCompanyAuth } from '../context/CompanyAuthContext';
 import { RelatoriosPonto } from './RelatoriosPonto';
-import { SupabaseDiagnostic } from './SupabaseDiagnostic';
+
 
 interface ManagerDashboardProps {
   colaboradores: Colaborador[];
@@ -542,8 +542,7 @@ export function ManagerDashboard({
             </p>
           </div>
 
-          {/* Diagnóstico de Conexão Supabase */}
-          <SupabaseDiagnostic className="mb-6" />
+
 
           <form onSubmit={handleSaveConfig} className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
