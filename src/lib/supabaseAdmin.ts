@@ -1,18 +1,23 @@
 import 'server-only';
 import { createClient } from '@supabase/supabase-js';
 
+import supabaseConfig from './supabaseConfig.json';
+
 // Supabase Admin - executa estritamente no servidor (Route Handlers) com a chave service_role.
 // Nunca importar este módulo em componentes de cliente.
 export const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   process.env.SUPABASE_URL ||
-  'https://ykxrbbhrkucwlgjseimr.supabase.co';
+  supabaseConfig.url ||
+  'https://juebzskzwzcvllwkcqhd.supabase.co';
 
 const SUPABASE_SERVICE_ROLE =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_KEY ||
+  supabaseConfig.serviceRoleKey ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_key_to_prevent_startup_crash';
+  supabaseConfig.anonKey ||
+  'sb_publishable_vrRSjKvvMlq31aUYXAIJGQ_oluuQsl6';
 
 export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
   auth: {

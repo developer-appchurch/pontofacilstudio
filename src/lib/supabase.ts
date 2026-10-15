@@ -8,8 +8,10 @@ import { createClient } from '@supabase/supabase-js';
 // para proteger a segurança do banco e rodam exclusivamente no backend (Route Handlers em src/app/api).
 // =========================================================================
 
-const DEFAULT_SUPABASE_URL = 'https://ykxrbbhrkucwlgjseimr.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlreHJiYmhya3Vjd2xnanNlaW1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1NTkzNzcsImV4cCI6MjEwNzEzNTM3N30.v7v4HNF7r2f9dByhX4Hp0CN7_2bWUli3T0xAGCfis-w';
+import supabaseConfig from './supabaseConfig.json';
+
+const DEFAULT_SUPABASE_URL = supabaseConfig.url || 'https://juebzskzwzcvllwkcqhd.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = supabaseConfig.anonKey || 'sb_publishable_vrRSjKvvMlq31aUYXAIJGQ_oluuQsl6';
 
 export const supabaseUrl: string =
   process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;

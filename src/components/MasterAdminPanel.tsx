@@ -10,6 +10,7 @@ import { useCompanyAuth } from '../context/CompanyAuthContext';
 import { Empresa } from '../types/ponto';
 import { formatCNPJ, isCNPJComplete } from '../utils/masks';
 import { supabaseDataService } from '../services/supabaseService';
+import { SupabaseDiagnostic } from './SupabaseDiagnostic';
 
 export const SQL_MIGRATION_EMPRESAS = `-- Adicionar colunas de acesso e credenciais na tabela public.empresas
 ALTER TABLE public.empresas 
@@ -56,10 +57,7 @@ export function MasterAdminPanel({ onBackToApp }: MasterAdminPanelProps) {
   const [modalError, setModalError] = useState('');
   const [successNotice, setSuccessNotice] = useState('');
 
-  // Schema Supabase Status & SQL copy
-  const [schemaStatus, setSchemaStatus] = useState<{ hasColumns: boolean; checked: boolean }>({ hasColumns: true, checked: false });
-  const [isCheckingSchema, setIsCheckingSchema] = useState(false);
-  const [copiedSql, setCopiedSql] = useState(false);
+
 
   // Modal de Edição de Credenciais da Empresa
   const [empresaParaEditar, setEmpresaParaEditar] = useState<Empresa | null>(null);
@@ -85,32 +83,7 @@ export function MasterAdminPanel({ onBackToApp }: MasterAdminPanelProps) {
     setRevealedPasswords((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const schemaCheckedRef = useRef(false);
 
-  const verificarColunasSupabase = async () => {
-    setIsCheckingSchema(true);
-    try {
-      const res = await supabaseDataService.checkSchemaStatus();
-      setSchemaStatus({ hasColumns: res.hasColumns, checked: true });
-    } catch {
-      setSchemaStatus({ hasColumns: false, checked: true });
-    } finally {
-      setIsCheckingSchema(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isMasterAdmin && !schemaCheckedRef.current) {
-      schemaCheckedRef.current = true;
-      verificarColunasSupabase();
-    }
-  }, [isMasterAdmin]);
-
-  const handleCopySql = () => {
-    navigator.clipboard.writeText(SQL_MIGRATION_EMPRESAS);
-    setCopiedSql(true);
-    setTimeout(() => setCopiedSql(false), 3000);
-  };
 
   const abrirModalEditar = (emp: Empresa) => {
     setEmpresaParaEditar(emp);
@@ -332,93 +305,8 @@ export function MasterAdminPanel({ onBackToApp }: MasterAdminPanelProps) {
 
 
 
-        {/* Banner de Verificação de Colunas do Supabase */}
-        {schemaStatus.checked && !schemaStatus.hasColumns && (
-          <div className="p-6 rounded-3xl bg-amber-950/30 border border-amber-500/30 text-amber-100 shadow-xl space-y-4 animate-fadeIn">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="flex items-start space-x-3.5">
-                <div className="p-3 rounded-2xl bg-amber-500/20 text-amber-400 shrink-0">
-                  <Database className="w-6 h-6" />
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <h2 className="text-base font-bold text-white">Criar Colunas de Acesso na Tabela "empresas"</h2>
-                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                      Ação Necessária no Supabase
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
-                    A tabela <code className="bg-slate-800 px-1.5 py-0.5 rounded text-amber-300 font-mono">public.empresas</code> no Supabase atualmente contém apenas as colunas básicas. Para que o <strong>e-mail</strong>, <strong>código totem</strong>, <strong>senha do dispositivo</strong> e <strong>senha do gestor</strong> sejam gravados e consultados com sucesso pelo Totem, execute o comando SQL abaixo no SQL Editor do seu projeto:
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={verificarColunasSupabase}
-                  disabled={isCheckingSchema}
-                  className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 flex items-center space-x-2 transition disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingSchema ? 'animate-spin text-amber-400' : ''}`} />
-                  <span>{isCheckingSchema ? 'Verificando...' : 'Verificar Colunas'}</span>
-                </button>
-
-                <a
-                  href="https://supabase.com/dashboard/project/ykxrbbhrkucwlgjseimr/sql/new"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center space-x-1.5 shadow-lg shadow-amber-500/20 transition"
-                >
-                  <span>Abrir SQL Editor</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              </div>
-            </div>
-
-            {/* Código SQL pronto com botão de copiar */}
-            <div className="relative bg-slate-900 border border-slate-800 rounded-2xl p-4 font-mono text-xs text-slate-300 overflow-x-auto">
-              <pre className="text-[11px] leading-relaxed text-amber-200/90 whitespace-pre">
-{SQL_MIGRATION_EMPRESAS}
-              </pre>
-              <button
-                type="button"
-                onClick={handleCopySql}
-                className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-medium flex items-center space-x-1.5 transition border border-slate-700"
-              >
-                {copiedSql ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-emerald-400 font-semibold">Copiado!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Copiar SQL</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {schemaStatus.checked && schemaStatus.hasColumns && (
-          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-2xl text-xs flex items-center justify-between animate-fadeIn">
-            <div className="flex items-center space-x-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>
-                <strong>Supabase sincronizado:</strong> A tabela <code className="bg-slate-900/60 px-1 py-0.5 rounded font-mono text-emerald-300">public.empresas</code> possui todas as colunas de credenciais ativas (<code className="font-mono">email_contato</code>, <code className="font-mono">codigo_acesso</code>, <code className="font-mono">senha_dispositivo</code>, <code className="font-mono">senha_gestor</code>).
-              </span>
-            </div>
-            <button
-              onClick={verificarColunasSupabase}
-              className="text-[11px] text-emerald-300 hover:underline flex items-center space-x-1 shrink-0 ml-2"
-            >
-              <RefreshCw className="w-3 h-3" />
-              <span>Reverificar</span>
-            </button>
-          </div>
-        )}
+        {/* Componente Visual de Diagnóstico do Supabase (Leitura/Escrita e Sem Polling Contínuo) */}
+        <SupabaseDiagnostic />
 
         {successNotice && (
           <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-2xl text-xs flex items-center space-x-2 animate-fadeIn">
