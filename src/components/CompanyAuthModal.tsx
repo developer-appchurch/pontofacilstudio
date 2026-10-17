@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Building2, ShieldCheck, Lock, CheckCircle2, ArrowRight, X, AlertCircle } from 'lucide-react';
 import { Empresa, UsuarioGestor } from '../types/ponto';
-import { initialEmpresas } from '../data/mockData';
+import { useCompanyAuth } from '../context/CompanyAuthContext';
 
 interface CompanyAuthModalProps {
   isOpen: boolean;
@@ -18,6 +18,7 @@ export function CompanyAuthModal({
   empresaAtiva,
   onSelecionarEmpresa
 }: CompanyAuthModalProps) {
+  const { listaEmpresasDisponiveis } = useCompanyAuth();
   const [selectedEmpresaId, setSelectedEmpresaId] = useState(empresaAtiva.id);
   const [codigoInput, setCodigoInput] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -29,7 +30,7 @@ export function CompanyAuthModal({
     e.preventDefault();
     setErrorMsg('');
 
-    const targetEmpresa = initialEmpresas.find((e) => e.id === selectedEmpresaId);
+    const targetEmpresa = listaEmpresasDisponiveis.find((e) => e.id === selectedEmpresaId);
     if (!targetEmpresa) {
       setErrorMsg('Empresa não encontrada.');
       return;
@@ -92,7 +93,7 @@ export function CompanyAuthModal({
               Selecione a Empresa Ativa:
             </label>
             <div className="space-y-2">
-              {initialEmpresas.map((emp) => {
+              {listaEmpresasDisponiveis.map((emp) => {
                 const isSelected = selectedEmpresaId === emp.id;
                 return (
                   <div

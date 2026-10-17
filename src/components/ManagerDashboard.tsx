@@ -489,10 +489,25 @@ export function ManagerDashboard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                {colaboradores.map((colab, idx) => {
-                  // Saldo simulado determinístico baseado no ID
-                  const saldosMock = [185, -45, 90, 240, 15, -10];
-                  const saldoMinutos = saldosMock[idx % saldosMock.length];
+                {colaboradores.map((colab) => {
+                  const registrosColab = registros.filter((r) => r.colaboradorId === colab.id);
+                  let saldoMinutos = 0;
+                  registrosColab.forEach((r) => {
+                    if (r.tipo === 'entrada') {
+                      if (r.status === 'atraso_leve' || r.status === 'atraso_critico') {
+                        saldoMinutos -= (r.diferencaMinutos || 0);
+                      } else if (r.status === 'antecipacao') {
+                        saldoMinutos += (r.diferencaMinutos || 0);
+                      }
+                    } else if (r.tipo === 'saida') {
+                      if (r.status === 'hora_extra') {
+                        saldoMinutos += (r.diferencaMinutos || 0);
+                      } else if (r.status === 'tolerancia') {
+                        saldoMinutos -= Math.abs(r.diferencaMinutos || 0);
+                      }
+                    }
+                  });
+
                   const horas = Math.floor(Math.abs(saldoMinutos) / 60);
                   const mins = Math.abs(saldoMinutos) % 60;
                   const isPositivo = saldoMinutos >= 0;

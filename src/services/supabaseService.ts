@@ -1,34 +1,12 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Empresa, Colaborador, RegistroPonto, RegraToleranciaConfig, Perfil } from '../types/ponto';
-import { initialEmpresas, initialColaboradores, initialRegistros } from '../data/mockData';
 import { defaultConfiguracao } from '../utils/toleranceEngine';
 
 // =========================================================================
-// SUPABASE HYBRID DATA SERVICE (100% SUPABASE / POSTGRESQL)
-// - Prioriza rotas de API do backend (/api/* com service role seguro)
-// - Fallback para cliente Supabase no navegador (anon key)
-// - Zero vazamento de secret key no navegador
+// SUPABASE DATABASE SERVICE (100% POSTGRESQL / SUPABASE - ZERO LOCALSTORAGE)
 // =========================================================================
 
-// State fallbacks mantidos em memória para resiliência
-let memoryEmpresas: Empresa[] = [...initialEmpresas];
-let memoryColaboradores: Colaborador[] = [...initialColaboradores];
-let memoryRegistros: RegistroPonto[] = [...initialRegistros];
-let memoryConfig: RegraToleranciaConfig = { ...defaultConfiguracao };
-let memoryPerfis: Perfil[] = [
-  {
-    id: 'perf-1',
-    empresaId: '11111111-1111-1111-1111-111111111111',
-    nome: 'Gestor Acme',
-    email: 'gestor@acme.com.br',
-    role: 'gestor'
-  }
-];
-
 export const supabaseDataService = {
-  // -----------------------------------------------------------------------
-  // EMPRESAS (Master Admin & Device Auth)
-  // -----------------------------------------------------------------------
   async checkSchemaStatus(): Promise<{ hasColumns: boolean; missingColumns?: string[] }> {
     try {
       const res = await fetch('/api/empresas/schema-status');
@@ -47,26 +25,21 @@ export const supabaseDataService = {
       const res = await fetch('/api/empresas');
       if (res.ok) {
         const json = await res.json();
-        if (Array.isArray(json.data) && json.data.length > 0) {
-          const list: Empresa[] = json.data.map((d: any) => {
-            const cached = memoryEmpresas.find(m => m.id === d.id || m.cnpj === d.cnpj);
-            return {
-              id: d.id,
-              nome: d.nome,
-              cnpj: d.cnpj,
-              emailContato: d.email_contato || d.email || cached?.emailContato || '',
-              codigoAcesso: d.codigo_acesso || d.codigo_totem || cached?.codigoAcesso || '',
-              senhaDispositivo: d.senha_dispositivo || cached?.senhaDispositivo || '',
-              senhaGestor: d.senha_gestor || cached?.senhaGestor || '',
-              cidade: d.cidade || cached?.cidade || 'Brasil'
-            };
-          });
-          memoryEmpresas = list;
-          return list;
+        if (Array.isArray(json.data)) {
+          return json.data.map((d: any) => ({
+            id: d.id,
+            nome: d.nome,
+            cnpj: d.cnpj,
+            emailContato: d.email_contato || d.email || '',
+            codigoAcesso: d.codigo_acesso || d.codigo_totem || '',
+            senhaDispositivo: d.senha_dispositivo || '',
+            senhaGestor: d.senha_gestor || '',
+            cidade: d.cidade || 'Brasil'
+          }));
         }
       }
     } catch {
-      // Backend não acessível, tenta cliente direto
+      // Backend não acessível
     }
 
     // 2. Tentar via Supabase client (anon)
@@ -77,76 +50,89 @@ export const supabaseDataService = {
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (!error && data && data.length > 0) {
-          const list: Empresa[] = data.map((d: any) => {
-            const cached = memoryEmpresas.find(m => m.id === d.id || m.cnpj === d.cnpj);
-            return {
-              id: d.id,
-              nome: d.nome,
-              cnpj: d.cnpj,
-              emailContato: d.email_contato || d.email || cached?.emailContato || '',
-              codigoAcesso: d.codigo_acesso || d.codigo_totem || cached?.codigoAcesso || '',
-              senhaDispositivo: d.senha_dispositivo || cached?.senhaDispositivo || '',
-              senhaGestor: d.senha_gestor || cached?.senhaGestor || '',
-              cidade: d.cidade || cached?.cidade || 'Brasil'
-            };
-          });
-          memoryEmpresas = list;
-          return list;
+        if (!error && data) {
+          return data.map((d: any) => ({
+            id: d.id,
+            nome: d.nome,
+            cnpj: d.cnpj,
+            emailContato: d.email_contato || d.email || '',
+            codigoAcesso: d.codigo_acesso || d.codigo_totem || '',
+            senhaDispositivo: d.senha_dispositivo || '',
+            senhaGestor: d.senha_gestor || '',
+            cidade: d.cidade || 'Brasil'
+          }));
         }
       } catch (err) {
         console.warn('Erro ao consultar via cliente Supabase:', err);
       }
     }
 
-    return [...memoryEmpresas];
+    return [];
   },
 
   async updateEmpresa(id: string, updates: Partial<Empresa>): Promise<void> {
     try {
-      await fetch(`/api/empresas/${id}`, {
+      const res = await fetch(`/api/empresas/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
       });
-      memoryEmpresas = memoryEmpresas.map(e => e.id === id ? { ...e, ...updates } : e);
+      if (res.ok) return;
     } catch (err) {
-      console.error('Erro ao atualizar empresa:', err);
+      console.error('Erro ao atualizar empresa via API:', err);
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      const dbUpdates: any = {};
+      if (updates.nome !== undefined) dbUpdates.nome = updates.nome;
+      if (updates.cnpj !== undefined) dbUpdates.cnpj = updates.cnpj;
+      if (updates.emailContato !== undefined) dbUpdates.email_contato = updates.emailContato;
+      if (updates.codigoAcesso !== undefined) dbUpdates.codigo_acesso = updates.codigoAcesso;
+      if (updates.senhaDispositivo !== undefined) dbUpdates.senha_dispositivo = updates.senhaDispositivo;
+      if (updates.senhaGestor !== undefined) dbUpdates.senha_gestor = updates.senhaGestor;
+      if (updates.cidade !== undefined) dbUpdates.cidade = updates.cidade;
+
+      const { error } = await supabase
+        .from('empresas')
+        .update(dbUpdates)
+        .eq('id', id);
+
+      if (error) {
+        throw new Error(`Erro ao atualizar empresa no Supabase: ${error.message}`);
+      }
     }
   },
 
   async createEmpresa(empresa: Omit<Empresa, 'id'>): Promise<Empresa> {
-    const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'emp-' + Date.now();
-    let newEmpresa: Empresa = { ...empresa, id: tempId };
-
-    // 1. Tentar via backend API seguro (usa service role no Node.js sem restrições de browser)
+    // 1. Tentar via backend API seguro
     try {
       const res = await fetch('/api/empresas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(empresa)
       });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data?.id) {
-          newEmpresa.id = json.data.id;
-          memoryEmpresas = [newEmpresa, ...memoryEmpresas.filter(e => e.cnpj !== empresa.cnpj)];
-          return newEmpresa;
-        }
-      } else {
-        const errJson = await res.json().catch(() => ({}));
-        if (errJson.error) {
-          throw new Error(errJson.error);
-        }
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.data?.id) {
+        return {
+          id: json.data.id,
+          nome: json.data.nome,
+          cnpj: json.data.cnpj,
+          emailContato: json.data.email_contato || empresa.emailContato,
+          codigoAcesso: json.data.codigo_acesso || empresa.codigoAcesso,
+          senhaDispositivo: json.data.senha_dispositivo || empresa.senhaDispositivo,
+          senhaGestor: json.data.senha_gestor || empresa.senhaGestor,
+          cidade: json.data.cidade || empresa.cidade || 'Brasil'
+        };
+      } else if (json.error) {
+        throw new Error(json.error);
       }
     } catch (apiErr: any) {
-      // Se deu erro real de banco (ex: duplicação de CNPJ), repassa o erro
       if (apiErr?.message && !apiErr.message.includes('fetch')) {
-        throw new Error(`Erro ao cadastrar empresa no Supabase: ${apiErr.message}`);
+        throw apiErr;
       }
     }
 
-    // 2. Fallback: tentar via Supabase client (anon)
+    // 2. Tentar via Supabase client (anon)
     if (isSupabaseConfigured && supabase) {
       let { data, error } = await supabase
         .from('empresas')
@@ -182,38 +168,44 @@ export const supabaseDataService = {
       }
 
       if (data?.id) {
-        newEmpresa.id = data.id;
+        // Registra perfil do gestor
+        if (empresa.emailContato) {
+          try {
+            await supabase.from('perfis').insert({
+              empresa_id: data.id,
+              nome: `Gestor - ${empresa.nome}`,
+              email: empresa.emailContato,
+              role: 'gestor'
+            });
+          } catch {
+            // Ignora se tabela perfis não existir
+          }
+        }
+
+        return {
+          id: data.id,
+          nome: data.nome,
+          cnpj: data.cnpj,
+          emailContato: data.email_contato || empresa.emailContato,
+          codigoAcesso: data.codigo_acesso || empresa.codigoAcesso,
+          senhaDispositivo: data.senha_dispositivo || empresa.senhaDispositivo,
+          senhaGestor: data.senha_gestor || empresa.senhaGestor,
+          cidade: data.cidade || empresa.cidade || 'Brasil'
+        };
       }
     }
 
-    // Registra perfil do gestor
-    if (empresa.emailContato) {
-      memoryPerfis.push({
-        id: 'perf-' + Date.now(),
-        empresaId: newEmpresa.id,
-        nome: `Gestor - ${empresa.nome}`,
-        email: empresa.emailContato,
-        role: 'gestor'
-      });
-    }
-
-    memoryEmpresas = [newEmpresa, ...memoryEmpresas];
-    return newEmpresa;
+    throw new Error('Não foi possível conectar ao banco de dados Supabase para cadastrar a empresa.');
   },
 
   async deleteEmpresa(id: string): Promise<void> {
-    // 1. Tentar backend API
     try {
       const res = await fetch(`/api/empresas/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        memoryEmpresas = memoryEmpresas.filter(e => e.id !== id);
-        return;
-      }
+      if (res.ok) return;
     } catch {
       // Ignora erro de rede e tenta cliente
     }
 
-    // 2. Tentar Supabase client (com cascata manual de colaboradores e registros)
     if (isSupabaseConfigured && supabase) {
       try {
         await supabase.from('configuracoes_jornada').delete().eq('empresa_id', id);
@@ -221,7 +213,7 @@ export const supabaseDataService = {
         await supabase.from('colaboradores').delete().eq('empresa_id', id);
         await supabase.from('perfis').delete().eq('empresa_id', id);
       } catch (cascadeErr) {
-        console.warn('Erro ao limpar dependências antes de excluir empresa:', cascadeErr);
+        console.warn('Erro ao limpar dependências:', cascadeErr);
       }
 
       const { error } = await supabase
@@ -233,34 +225,33 @@ export const supabaseDataService = {
         throw new Error(`Erro ao deletar empresa no Supabase: ${error.message}`);
       }
     }
-
-    memoryEmpresas = memoryEmpresas.filter(e => e.id !== id);
-    memoryPerfis = memoryPerfis.filter(p => p.empresaId !== id);
-    memoryColaboradores = memoryColaboradores.filter(c => c.empresaId !== id);
-    memoryRegistros = memoryRegistros.filter(r => r.empresaId !== id);
   },
 
   async updateSenhaGestor(empresaId: string, novaSenha: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase
-          .from('empresas')
-          .update({ senha_gestor: novaSenha })
-          .eq('id', empresaId);
-      } catch (err) {
-        console.warn('Atualização de senha no Supabase:', err);
-      }
+    try {
+      await fetch(`/api/empresas/${empresaId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senha_gestor: novaSenha })
+      });
+    } catch {
+      // Ignora
     }
 
-    memoryEmpresas = memoryEmpresas.map(e => e.id === empresaId ? { ...e, senhaGestor: novaSenha } : e);
+    if (isSupabaseConfigured && supabase) {
+      await supabase
+        .from('empresas')
+        .update({ senha_gestor: novaSenha })
+        .eq('id', empresaId);
+    }
   },
 
   // -----------------------------------------------------------------------
-  // PERFIS (Gestores, Admins, Colaboradores no Supabase)
+  // PERFIS
   // -----------------------------------------------------------------------
   async listPerfis(empresaId: string): Promise<Perfil[]> {
     if (!isSupabaseConfigured || !supabase) {
-      return memoryPerfis.filter(p => p.empresaId === empresaId);
+      return [];
     }
 
     const { data, error } = await supabase
@@ -270,7 +261,7 @@ export const supabaseDataService = {
       .order('created_at', { ascending: false });
 
     if (error) {
-      return memoryPerfis.filter(p => p.empresaId === empresaId);
+      return [];
     }
 
     return (data || []).map((p: any) => ({
@@ -284,9 +275,6 @@ export const supabaseDataService = {
   },
 
   async createPerfil(perfil: Omit<Perfil, 'id' | 'createdAt'>): Promise<Perfil> {
-    const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'perf-' + Date.now();
-    const newPerfil: Perfil = { ...perfil, id: tempId, createdAt: new Date().toISOString() };
-
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('perfis')
@@ -299,23 +287,25 @@ export const supabaseDataService = {
         .select()
         .single();
 
-      if (error) {
-        console.warn('Erro ao inserir perfil:', error.message);
-      } else if (data) {
-        newPerfil.id = data.id;
-        newPerfil.createdAt = data.created_at;
+      if (!error && data) {
+        return {
+          id: data.id,
+          empresaId: data.empresa_id,
+          nome: data.nome,
+          email: data.email,
+          role: data.role,
+          createdAt: data.created_at
+        };
       }
     }
 
-    memoryPerfis = [newPerfil, ...memoryPerfis];
-    return newPerfil;
+    throw new Error('Erro ao criar perfil no banco de dados.');
   },
 
   // -----------------------------------------------------------------------
-  // COLABORADORES (Isolados estritamente por company_id)
+  // COLABORADORES
   // -----------------------------------------------------------------------
   async listColaboradores(companyId: string): Promise<Colaborador[]> {
-    // 1. Tentar via backend API
     try {
       const res = await fetch(`/api/colaboradores?empresa_id=${companyId}`);
       if (res.ok) {
@@ -343,7 +333,6 @@ export const supabaseDataService = {
       // Fallback
     }
 
-    // 2. Tentar via cliente Supabase
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('colaboradores')
@@ -371,14 +360,10 @@ export const supabaseDataService = {
       }
     }
 
-    return memoryColaboradores.filter(c => c.empresaId === companyId);
+    return [];
   },
 
   async createColaborador(companyId: string, colab: Colaborador): Promise<Colaborador> {
-    const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'colab-' + Date.now();
-    const newColab: Colaborador = { ...colab, id: tempId, empresaId: companyId };
-
-    // 1. Tentar via backend API
     try {
       const res = await fetch('/api/colaboradores', {
         method: 'POST',
@@ -399,19 +384,22 @@ export const supabaseDataService = {
           fotos_faciais: colab.fotosFaciais || []
         })
       });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data?.id) {
-          newColab.id = json.data.id;
-          memoryColaboradores = [newColab, ...memoryColaboradores];
-          return newColab;
-        }
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.data?.id) {
+        return {
+          ...colab,
+          id: json.data.id,
+          empresaId: companyId
+        };
+      } else if (json.error) {
+        throw new Error(json.error);
       }
-    } catch {
-      // Fallback
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) {
+        throw err;
+      }
     }
 
-    // 2. Tentar via Supabase client
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('colaboradores')
@@ -438,27 +426,25 @@ export const supabaseDataService = {
       }
 
       if (data) {
-        newColab.id = data.id;
+        return {
+          ...colab,
+          id: data.id,
+          empresaId: companyId
+        };
       }
     }
 
-    memoryColaboradores = [newColab, ...memoryColaboradores];
-    return newColab;
+    throw new Error('Não foi possível salvar o colaborador no banco de dados.');
   },
 
   async deleteColaborador(companyId: string, id: string): Promise<void> {
-    // 1. Backend API
     try {
       const res = await fetch(`/api/colaboradores/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        memoryColaboradores = memoryColaboradores.filter(c => c.id !== id);
-        return;
-      }
+      if (res.ok) return;
     } catch {
       // Continua
     }
 
-    // 2. Supabase client
     if (isSupabaseConfigured && supabase) {
       const { error } = await supabase
         .from('colaboradores')
@@ -470,15 +456,12 @@ export const supabaseDataService = {
         throw new Error(`Erro ao excluir colaborador no Supabase: ${error.message}`);
       }
     }
-
-    memoryColaboradores = memoryColaboradores.filter(c => c.id !== id);
   },
 
   // -----------------------------------------------------------------------
-  // REGISTROS DE PONTO (Motor de Ponto & TimeClock Logs)
+  // REGISTROS DE PONTO
   // -----------------------------------------------------------------------
   async listRegistros(companyId: string): Promise<RegistroPonto[]> {
-    // 1. Tentar via backend API
     try {
       const res = await fetch(`/api/registros?empresa_id=${companyId}`);
       if (res.ok) {
@@ -504,7 +487,6 @@ export const supabaseDataService = {
       // Fallback
     }
 
-    // 2. Tentar via cliente Supabase
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('registros_ponto')
@@ -530,14 +512,10 @@ export const supabaseDataService = {
       }
     }
 
-    return memoryRegistros.filter(r => r.empresaId === companyId);
+    return [];
   },
 
   async createRegistro(companyId: string, reg: Omit<RegistroPonto, 'id'>): Promise<RegistroPonto> {
-    const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'reg-' + Date.now();
-    const newReg: RegistroPonto = { ...reg, id: tempId, empresaId: companyId };
-
-    // 1. Backend API
     try {
       const res = await fetch('/api/registros', {
         method: 'POST',
@@ -556,19 +534,22 @@ export const supabaseDataService = {
           localizacao: reg.localizacao || 'Terminal Totem'
         })
       });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data?.id) {
-          newReg.id = json.data.id;
-          memoryRegistros = [newReg, ...memoryRegistros];
-          return newReg;
-        }
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.data?.id) {
+        return {
+          ...reg,
+          id: json.data.id,
+          empresaId: companyId
+        };
+      } else if (json.error) {
+        throw new Error(json.error);
       }
-    } catch {
-      // Fallback
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) {
+        throw err;
+      }
     }
 
-    // 2. Supabase client
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('registros_ponto')
@@ -593,19 +574,21 @@ export const supabaseDataService = {
       }
 
       if (data) {
-        newReg.id = data.id;
+        return {
+          ...reg,
+          id: data.id,
+          empresaId: companyId
+        };
       }
     }
 
-    memoryRegistros = [newReg, ...memoryRegistros];
-    return newReg;
+    throw new Error('Não foi possível registrar o ponto no banco de dados.');
   },
 
   // -----------------------------------------------------------------------
-  // CONFIGURAÇÕES DE JORNADA / REGRAS DE TOLERÂNCIA
+  // CONFIGURAÇÕES DE JORNADA
   // -----------------------------------------------------------------------
   async getConfig(companyId: string): Promise<RegraToleranciaConfig> {
-    // 1. Backend API
     try {
       const res = await fetch(`/api/configuracoes?empresa_id=${companyId}`);
       if (res.ok) {
@@ -623,7 +606,6 @@ export const supabaseDataService = {
       // Fallback
     }
 
-    // 2. Supabase client
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('configuracoes_jornada')
@@ -641,13 +623,10 @@ export const supabaseDataService = {
       }
     }
 
-    return { ...memoryConfig };
+    return { ...defaultConfiguracao };
   },
 
   async updateConfig(companyId: string, newConfig: RegraToleranciaConfig): Promise<void> {
-    memoryConfig = { ...newConfig };
-
-    // 1. Backend API
     try {
       const res = await fetch('/api/configuracoes', {
         method: 'POST',
@@ -665,7 +644,6 @@ export const supabaseDataService = {
       // Fallback
     }
 
-    // 2. Supabase client
     if (isSupabaseConfigured && supabase) {
       const { error } = await supabase
         .from('configuracoes_jornada')

@@ -181,6 +181,7 @@ function AppContent() {
           {activeView === 'kiosk' ? (
             <TerminalKiosk
               colaboradores={colaboradoresEmpresa}
+              registros={registrosEmpresa}
               onRegistrarPonto={handleRegistrarPonto}
               config={config}
               empresaAtiva={empresaLogada}
