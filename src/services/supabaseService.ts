@@ -228,22 +228,31 @@ export const supabaseDataService = {
   },
 
   async updateSenhaGestor(empresaId: string, novaSenha: string): Promise<void> {
+    // A rota PUT /api/empresas/[id] lê `senhaGestor` (camelCase); `senha_gestor` era ignorado.
     try {
-      await fetch(`/api/empresas/${empresaId}`, {
+      const res = await fetch(`/api/empresas/${empresaId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ senha_gestor: novaSenha })
+        body: JSON.stringify({ senhaGestor: novaSenha })
       });
+      if (res.ok) return;
     } catch {
-      // Ignora
+      // tenta pelo cliente Supabase
     }
 
     if (isSupabaseConfigured && supabase) {
-      await supabase
+      // .select() permite detectar update que o RLS descartou sem erro (0 linhas afetadas)
+      const { data, error } = await supabase
         .from('empresas')
         .update({ senha_gestor: novaSenha })
-        .eq('id', empresaId);
+        .eq('id', empresaId)
+        .select('id');
+
+      if (!error && data && data.length > 0) return;
+      if (error) throw new Error(`Erro ao salvar a senha do gestor no Supabase: ${error.message}`);
     }
+
+    throw new Error('Não foi possível salvar a senha do gestor no banco de dados.');
   },
 
   // -----------------------------------------------------------------------

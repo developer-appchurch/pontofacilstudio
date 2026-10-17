@@ -133,13 +133,18 @@ export function ManagerDashboard({
   const [novaSenhaGestor, setNovaSenhaGestor] = useState(empresaAtiva.senhaGestor || 'admin123');
   const [senhaSalvaSucesso, setSenhaSalvaSucesso] = useState(false);
 
-  const handleSalvarSenhaGestor = (e: React.FormEvent) => {
+  const handleSalvarSenhaGestor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (novaSenhaGestor.length < 4) {
       alert('A senha do gestor deve ter pelo menos 4 caracteres.');
       return;
     }
-    alterarSenhaGestor(novaSenhaGestor);
+    try {
+      await alterarSenhaGestor(novaSenhaGestor);
+    } catch (err: any) {
+      alert('Erro ao salvar a senha do gestor: ' + (err?.message || err));
+      return;
+    }
     setSenhaSalvaSucesso(true);
     setTimeout(() => setSenhaSalvaSucesso(false), 3000);
   };

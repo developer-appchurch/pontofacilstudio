@@ -14,7 +14,6 @@ export const SUPABASE_URL =
 const SUPABASE_SERVICE_ROLE =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_KEY ||
-  supabaseConfig.serviceRoleKey ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
   supabaseConfig.anonKey ||
   'sb_publishable_vrRSjKvvMlq31aUYXAIJGQ_oluuQsl6';
