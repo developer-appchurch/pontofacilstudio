@@ -12,6 +12,7 @@ import { Colaborador, RegistroPonto, TipoMarcacao, RegraToleranciaConfig, Empres
 import { avaliarStatusPonto, formatarStatusLabel } from '../utils/toleranceEngine';
 import { useCompanyAuth } from '../context/CompanyAuthContext';
 import { extractCanvasSignature, compareBiometricSignatures, getImageSignature, BiometricSignature } from '../utils/faceBiometrics';
+import { supabaseDataService } from '../services/supabaseService';
 
 interface TerminalKioskProps {
   colaboradores: Colaborador[];
@@ -42,6 +43,8 @@ export function TerminalKiosk({ colaboradores, registros, onRegistrarPonto, conf
   const [pinInput, setPinInput] = useState('');
   const [activeKeypadField, setActiveKeypadField] = useState<'cpf' | 'pin'>('cpf');
   const [errorMsg, setErrorMsg] = useState('');
+  const cpfInputRef = useRef<HTMLInputElement>(null);
+  const pinInputRef = useRef<HTMLInputElement>(null);
 
   // Facial biometric state
   const [isScanning, setIsScanning] = useState(false);
@@ -272,23 +275,80 @@ export function TerminalKiosk({ colaboradores, registros, onRegistrarPonto, conf
   };
 
   // Efetuar registro de ponto (comum a Facial e CPF/PIN)
-  const efetuarRegistro = useCallback((colab: Colaborador, metodo: 'facial' | 'cpf_pin') => {
+  const efetuarRegistro = useCallback(async (colab: Colaborador, metodo: 'facial' | 'cpf_pin') => {
     const agora = new Date();
+    const ano = agora.getFullYear();
+    const mes = String(agora.getMonth() + 1).padStart(2, '0');
+    const dia = String(agora.getDate()).padStart(2, '0');
+    const dataStr = `${ano}-${mes}-${dia}`;
 
-    // Validar se o colaborador já registrou ponto nos últimos 5 minutos (evitar duplicatas)
-    const ultimoRegColab = registros
-      .filter(r => r.colaboradorId === colab.id)
-      .sort((a, b) => {
-        const timeA = new Date(`${a.data}T${a.horario}`).getTime();
-        const timeB = new Date(`${b.data}T${b.horario}`).getTime();
-        return timeB - timeA;
-      })[0];
+    // Filtrar registros do colaborador no dia atual na memória
+    let registrosHojeColab = registros.filter(r => r.colaboradorId === colab.id && r.data === dataStr);
+    let temEntradaHoje = registrosHojeColab.some(r => r.tipo === 'entrada');
+
+    // Conferência direta no banco para o dia exato (dataStr), sem consultar outros dias ou o banco inteiro
+    if (!temEntradaHoje) {
+      try {
+        const entradaNoBanco = await supabaseDataService.checkEntradaExistsToday(empresaAtiva.id, colab.id, dataStr);
+        if (entradaNoBanco) {
+          temEntradaHoje = true;
+        }
+      } catch (err) {
+        console.warn('Erro ao conferir entrada no banco:', err);
+      }
+    }
+
+    // 1. O primeiro registro do dia deve ser obrigatoriamente "entrada"
+    if (!temEntradaHoje && tipoMarcacao !== 'entrada') {
+      const msg = 'O primeiro registro do dia deve ser Entrada.';
+      if (metodo === 'facial') {
+        setFacialStatus('nao_encontrado');
+        setFacialError(msg);
+      } else {
+        setErrorMsg(msg);
+      }
+      playFeedbackSound('error');
+      return;
+    }
+
+    // Conferir se a etapa atual já foi registrada hoje no banco para este dia específico
+    let jaRegistrouEtapa = registrosHojeColab.some(r => r.tipo === tipoMarcacao);
+    if (!jaRegistrouEtapa) {
+      try {
+        const registrosDiaBanco = await supabaseDataService.listRegistrosByDate(empresaAtiva.id, colab.id, dataStr);
+        if (registrosDiaBanco.some(r => r.tipo === tipoMarcacao)) {
+          jaRegistrouEtapa = true;
+        }
+      } catch (err) {
+        console.warn('Erro ao conferir etapa no banco:', err);
+      }
+    }
+
+    // 2. Ao tentar registrar qualquer etapa pela segunda vez no dia, mostra a mensagem "etapa já registrada"
+    if (jaRegistrouEtapa) {
+      const msg = 'etapa já registrada';
+      if (metodo === 'facial') {
+        setFacialStatus('ja_registrado');
+        setFacialError(msg);
+      } else {
+        setErrorMsg(msg);
+      }
+      playFeedbackSound('error');
+      return;
+    }
+
+    // 3. Validação anti-duplicação por intervalo curto (30 segundos)
+    const ultimoRegColab = registrosHojeColab.sort((a, b) => {
+      const timeA = new Date(`${a.data}T${a.horario}`).getTime();
+      const timeB = new Date(`${b.data}T${b.horario}`).getTime();
+      return timeB - timeA;
+    })[0];
 
     if (ultimoRegColab) {
       const timeUltimo = new Date(`${ultimoRegColab.data}T${ultimoRegColab.horario}`).getTime();
-      const diffMinutos = (agora.getTime() - timeUltimo) / (1000 * 60);
-      if (diffMinutos < 1) {
-        const msg = 'Colaborador já registrado';
+      const diffSegundos = (agora.getTime() - timeUltimo) / 1000;
+      if (diffSegundos < 30) {
+        const msg = 'etapa já registrada';
         if (metodo === 'facial') {
           setFacialStatus('ja_registrado');
           setFacialError(msg);
@@ -300,7 +360,6 @@ export function TerminalKiosk({ colaboradores, registros, onRegistrarPonto, conf
       }
     }
 
-    const dataStr = agora.toISOString().split('T')[0];
     const horas = String(agora.getHours()).padStart(2, '0');
     const minutos = String(agora.getMinutes()).padStart(2, '0');
     const segundos = String(agora.getSeconds()).padStart(2, '0');
@@ -629,7 +688,21 @@ export function TerminalKiosk({ colaboradores, registros, onRegistrarPonto, conf
             {(['entrada', 'inicio_almoco', 'fim_almoco', 'saida'] as TipoMarcacao[]).map((tipo) => (
               <button
                 key={tipo}
-                onClick={() => setTipoMarcacao(tipo)}
+                onClick={() => {
+                  setTipoMarcacao(tipo);
+                  setFacialStatus('aguardando');
+                  setFacialError('');
+                  setErrorMsg('');
+                  setUltimoRegistro(null);
+                  isCooldownRef.current = false;
+                  stopCamera();
+                  setAuthMode('cpf');
+                  setActiveKeypadField('cpf');
+                  setTimeout(() => {
+                    cpfInputRef.current?.focus();
+                    cpfInputRef.current?.select();
+                  }, 50);
+                }}
                 className={`py-2 sm:py-2.5 px-1 sm:px-2 rounded-xl border text-center transition-all ${
                   tipoMarcacao === tipo
                     ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-600/20'
@@ -669,6 +742,11 @@ export function TerminalKiosk({ colaboradores, registros, onRegistrarPonto, conf
                 onClick={() => {
                   stopCamera();
                   setAuthMode('cpf');
+                  setActiveKeypadField('cpf');
+                  setTimeout(() => {
+                    cpfInputRef.current?.focus();
+                    cpfInputRef.current?.select();
+                  }, 50);
                 }}
                 className={`flex-1 sm:flex-initial flex items-center justify-center space-x-1.5 px-3 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
                   authMode === 'cpf'
@@ -941,7 +1019,10 @@ export function TerminalKiosk({ colaboradores, registros, onRegistrarPonto, conf
               <form onSubmit={handleCpfSubmit} className="space-y-2 sm:space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <div
-                    onClick={() => setActiveKeypadField('cpf')}
+                    onClick={() => {
+                      setActiveKeypadField('cpf');
+                      cpfInputRef.current?.focus();
+                    }}
                     className={`p-2 rounded-xl border cursor-pointer transition ${
                       activeKeypadField === 'cpf'
                         ? 'bg-blue-50/60 border-blue-500 ring-2 ring-blue-500/20'
@@ -952,12 +1033,23 @@ export function TerminalKiosk({ colaboradores, registros, onRegistrarPonto, conf
                       CPF
                     </label>
                     <input
+                      ref={cpfInputRef}
                       type="text"
                       value={cpfInput}
+                      onFocus={() => setActiveKeypadField('cpf')}
                       onChange={(e) => {
                         setCpfInput(formatCPF(e.target.value));
                         if (e.target.value.replace(/\D/g, '').length === 11) {
                           setActiveKeypadField('pin');
+                          pinInputRef.current?.focus();
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          setActiveKeypadField('pin');
+                          pinInputRef.current?.focus();
+                          pinInputRef.current?.select();
                         }
                       }}
                       placeholder="000.000.000-00"
@@ -966,7 +1058,10 @@ export function TerminalKiosk({ colaboradores, registros, onRegistrarPonto, conf
                   </div>
 
                   <div
-                    onClick={() => setActiveKeypadField('pin')}
+                    onClick={() => {
+                      setActiveKeypadField('pin');
+                      pinInputRef.current?.focus();
+                    }}
                     className={`p-2 rounded-xl border cursor-pointer transition ${
                       activeKeypadField === 'pin'
                         ? 'bg-blue-50/60 border-blue-500 ring-2 ring-blue-500/20'
@@ -977,10 +1072,18 @@ export function TerminalKiosk({ colaboradores, registros, onRegistrarPonto, conf
                       PIN (4 dígitos)
                     </label>
                     <input
+                      ref={pinInputRef}
                       type="password"
                       maxLength={4}
                       value={pinInput}
+                      onFocus={() => setActiveKeypadField('pin')}
                       onChange={(e) => setPinInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleCpfSubmit();
+                        }
+                      }}
                       placeholder="••••"
                       className="w-full bg-transparent font-mono text-center font-bold text-sm sm:text-base tracking-widest text-slate-800 focus:outline-none"
                     />

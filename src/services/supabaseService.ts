@@ -524,6 +524,61 @@ export const supabaseDataService = {
     return [];
   },
 
+  async checkEntradaExistsToday(companyId: string, colaboradorId: string, dataStr: string): Promise<boolean> {
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('registros_ponto')
+          .select('id')
+          .eq('empresa_id', companyId)
+          .eq('colaborador_id', colaboradorId)
+          .eq('data', dataStr)
+          .eq('tipo', 'entrada')
+          .limit(1);
+
+        if (!error && data && data.length > 0) {
+          return true;
+        }
+      } catch (err) {
+        console.warn('Erro ao consultar entrada no Supabase:', err);
+      }
+    }
+    return false;
+  },
+
+  async listRegistrosByDate(companyId: string, colaboradorId: string, dataStr: string): Promise<RegistroPonto[]> {
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('registros_ponto')
+          .select('*')
+          .eq('empresa_id', companyId)
+          .eq('colaborador_id', colaboradorId)
+          .eq('data', dataStr);
+
+        if (!error && data) {
+          return data.map((r: any) => ({
+            id: r.id,
+            empresaId: r.empresa_id,
+            colaboradorId: r.colaborador_id,
+            colaboradorNome: r.colaborador_nome,
+            data: r.data,
+            horario: r.horario,
+            tipo: r.tipo,
+            metodo: r.metodo,
+            status: r.status,
+            diferencaMinutos: r.diferenca_minutos,
+            observacao: r.observacao,
+            localizacao: r.localizacao
+          }));
+        }
+      } catch (err) {
+        console.warn('Erro ao listar registros do dia no Supabase:', err);
+      }
+    }
+    return [];
+  },
+
   async createRegistro(companyId: string, reg: Omit<RegistroPonto, 'id'>): Promise<RegistroPonto> {
     try {
       const res = await fetch('/api/registros', {
